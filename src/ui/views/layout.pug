@@ -1,0 +1,231 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title= title || 'Admin Panel'
+    style.
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        background: #f5f5f5;
+        display: flex;
+        height: 100vh;
+      }
+      .sidebar {
+        width: 250px;
+        background: #2c3e50;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+      }
+      .sidebar-header {
+        padding: 20px;
+        background: #1a252f;
+        border-bottom: 1px solid #34495e;
+      }
+      .sidebar-header h1 {
+        font-size: 18px;
+        margin-bottom: 5px;
+        color: #fff;
+      }
+      .sidebar-header p {
+        font-size: 12px;
+        color: #95a5a6;
+      }
+      .nav-tabs {
+        flex: 1;
+        padding: 10px 0;
+      }
+      .nav-tab {
+        display: block;
+        padding: 15px 20px;
+        text-decoration: none;
+        color: #bdc3c7;
+        transition: all 0.3s ease;
+        border-left: 3px solid transparent;
+        font-weight: 500;
+      }
+      .nav-tab:hover {
+        background: #34495e;
+        color: #fff;
+      }
+      .nav-tab.active {
+        background: #34495e;
+        color: #3498db;
+        border-left-color: #3498db;
+      }
+      .main-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .content-header {
+        background: #fff;
+        padding: 20px 30px;
+        border-bottom: 1px solid #e0e0e0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      }
+      .content-header h2 {
+        font-size: 24px;
+        color: #333;
+        margin-bottom: 5px;
+      }
+      .content-header p {
+        font-size: 14px;
+        color: #666;
+      }
+      .content {
+        flex: 1;
+        background: #fff;
+        padding: 30px;
+        overflow-y: auto;
+      }
+      .actions-bar {
+        margin-top: 15px;
+        display: flex;
+        gap: 10px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: none;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s ease;
+      }
+      .btn-primary {
+        background: #3498db;
+        color: #fff;
+      }
+      .btn-secondary {
+        background: #95a5a6;
+        color: #fff;
+        margin-right: 8px;
+      }
+      .btn-danger {
+        background: #e74c3c;
+        color: #fff;
+      }
+      .btn:hover {
+        opacity: 0.85;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+      .status-connected {
+        background: #e8f5e9;
+        color: #2e7d32;
+      }
+      .status-disconnected {
+        background: #ffebee;
+        color: #c62828;
+      }
+      .status-unknown {
+        background: #fff3e0;
+        color: #ef6c00;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+      }
+      th, td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      th {
+        background: #f5f5f5;
+        font-weight: 600;
+        color: #333;
+      }
+      tr:hover {
+        background: #fafafa;
+      }
+      .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      .modal.hidden {
+        display: none;
+      }
+      .modal-content {
+        background: #fff;
+        padding: 24px;
+        width: 420px;
+        border-radius: 12px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .modal-content h3 {
+        margin-bottom: 4px;
+        color: #2c3e50;
+      }
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .form-group input,
+      .form-group select {
+        padding: 8px 10px;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .form-group.checkbox {
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+      }
+      .modal-actions {
+        margin-top: 8px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .iframe-container {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+  body
+    .sidebar
+      .sidebar-header
+        h1 Admin Panel
+        p Quản lý Service, Job và Workflow
+
+      .nav-tabs
+        a.nav-tab(href="/admin" class=(currentTab === 'bullmq' ? 'active' : '')) BullMQ
+        a.nav-tab(href="/admin/workflow" class=(currentTab === 'workflow' ? 'active' : '')) Workflow
+        a.nav-tab(href="/admin/services" class=(currentTab === 'services' ? 'active' : '')) Manager Service
+        a.nav-tab(href="/admin/minio" class=(currentTab === 'minio' ? 'active' : '')) Manager MinIO
+
+    .main-content
+      block content

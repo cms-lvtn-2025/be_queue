@@ -1,0 +1,723 @@
+extends layout
+
+block content
+  .content-header
+    h2 Workflow Editor
+    p Tạo và chỉnh sửa workflow với visual editor
+    .header-actions(style="margin-top: 10px;")
+      button#save-workflow.btn.btn-primary Save Workflow
+      button#clear-canvas.btn.btn-secondary Clear Canvas
+
+  .content(style="padding: 0; display: flex; height: 100%;")
+    //- Sidebar - Node palette
+    .node-palette(style="width: 250px; background: #f8f9fa; border-right: 1px solid #dee2e6; padding: 15px; overflow-y: auto;")
+      h4(style="margin-bottom: 15px; color: #333;") Add Nodes
+
+      .node-category(style="margin-bottom: 20px;")
+        h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Fixed Services
+        .draggable-node.node-template(data-type="queue" data-service-name="QUEUE" data-method="EnJob" draggable="true" style="margin-bottom: 8px;")
+          .node-icon 📋
+          .node-label QUEUE (EnJob)
+        .draggable-node.node-template(data-type="evaluate" data-service-name="QUEUE" data-method="evaluateJob" draggable="true" style="margin-bottom: 8px;")
+          .node-icon 💻
+          .node-label QUEUE (evaluateJob)
+        .draggable-node.node-template(data-type="workflow" data-service-name="MONGODB_WORKFLOW" data-method="findById" draggable="true" style="margin-bottom: 8px;")
+          .node-icon 🔄
+          .node-label MONGODB_WORKFLOW
+
+      .node-category(style="margin-bottom: 20px;")
+        h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Static Services (Internal)
+        if servicesList && servicesList.static
+          each service in servicesList.static
+            .draggable-node.node-template(data-type="static" data-service-name=service.name draggable="true" style="margin-bottom: 8px;")
+              .node-icon 💾
+              .node-label= service.name.replace('MINIO_SERVICE_', 'MINIO_')
+
+      .node-category(style="margin-bottom: 20px;")
+        h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Dynamic Services (gRPC)
+        if servicesList && servicesList.dynamic
+          each service in servicesList.dynamic
+            .draggable-node.node-template(data-type="dynamic" data-service-name=service.name draggable="true" style="margin-bottom: 8px;")
+              .node-icon 🔧
+              .node-label= service.name
+
+      .node-category(style="margin-bottom: 20px;")
+        h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Custom
+        .draggable-node.node-template(data-type="custom" draggable="true" style="margin-bottom: 8px;")
+          .node-icon ⚙️
+          .node-label Custom Service
+
+    //- Main canvas
+    .workflow-canvas(style="flex: 1; position: relative; background: #fff; overflow: auto;")
+      #canvas(style="width: 100%; height: 100%; position: relative; background-image: radial-gradient(circle, #e0e0e0 1px, transparent 1px); background-size: 20px 20px;")
+        //- Workflow nodes sẽ được render ở đây
+        if workflow
+          //- Parent node
+          .workflow-node(
+            id=`node-parent`
+            data-node-id="parent"
+            data-service=workflow.parentServiceName
+            data-method=workflow.parentMethod
+            style=`position: absolute; left: 1100px; top: 50px;`
+          )
+            .node-header(style=`background: #3498db;`)
+              .node-type Parent Job
+              button.node-delete(type="button") ×
+            .node-body
+              .node-field
+                strong Service:
+                span= workflow.parentServiceName
+              .node-field
+                strong Method:
+                span= workflow.parentMethod
+            .node-footer
+              .node-endpoint.source(data-type="output" title="Output (connect to parent)")
+              .node-endpoint.target(data-type="input" title="Input (receive from children)")
+
+  //- Modal for editing node
+  #node-modal.modal(style="display: none;")
+    .modal-content
+      .modal-header
+        h3 Edit Node
+        button.modal-close ×
+      .modal-body
+        form#node-form
+          .form-group
+            label Service Type
+            select#node-service-type.form-control
+              option(value="") -- Select Type --
+              optgroup(label="Fixed Services")
+                option(value="QUEUE") QUEUE (EnJob, evaluateJob)
+                option(value="MONGODB_WORKFLOW") MONGODB_WORKFLOW
+              optgroup(label="Static Services (Internal)")
+                if servicesList && servicesList.static
+                  each service in servicesList.static
+                    option(value=service.name)= service.name
+              optgroup(label="Dynamic Services (gRPC)")
+                if servicesList && servicesList.dynamic
+                  each service in servicesList.dynamic
+                    option(value=service.name)= service.name
+
+          .form-group
+            label Service Name
+            input#node-service.form-control(type="text" readonly placeholder="Auto-filled from type")
+
+          .form-group
+            label Method
+            select#node-method-select.form-control(style="margin-bottom: 8px;")
+              option(value="") -- Select service first --
+            input#node-method.form-control(type="text" placeholder="Or enter method name manually" style="display: none;")
+
+          .form-group
+            label Parameters (JSON)
+            textarea#node-params.form-control(rows="8" placeholder='{"key": "value"}')
+
+          .form-group
+            label Options (JobsOptions - optional)
+            textarea#node-options.form-control(rows="6" placeholder='{"delay": 5000, "priority": 1, "attempts": 3}')
+            small(style="color: #666; font-size: 11px;") BullMQ job options: delay, priority, attempts, backoff, etc.
+
+          .form-group(id="code-group" style="display: none;")
+            label Code (TypeScript)
+            textarea#node-code.form-control(rows="15" placeholder="// Write your code here")
+      .modal-footer
+        button#cancel-node.btn.btn-secondary Cancel
+        button#save-node.btn.btn-primary Save
+
+  style.
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      margin-right: 8px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #3498db;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #2980b9;
+    }
+    .btn-secondary {
+      background: #95a5a6;
+      color: white;
+    }
+    .btn-secondary:hover {
+      background: #7f8c8d;
+    }
+    .draggable-node {
+      background: white;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px;
+      cursor: move;
+      display: flex;
+      align-items: center;
+      transition: all 0.2s;
+    }
+    .draggable-node:hover {
+      border-color: #3498db;
+      box-shadow: 0 2px 8px rgba(52, 152, 219, 0.2);
+    }
+    .node-icon {
+      font-size: 20px;
+      margin-right: 10px;
+    }
+    .node-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+    }
+    .workflow-node {
+      background: white;
+      border: 2px solid #3498db;
+      border-radius: 8px;
+      width: 250px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      cursor: move;
+      user-select: none;
+      position: absolute;
+    }
+    .workflow-node.selected {
+      border-color: #e74c3c;
+      box-shadow: 0 4px 16px rgba(231, 76, 60, 0.3);
+    }
+    .node-header {
+      background: #3498db;
+      color: white;
+      padding: 10px;
+      border-radius: 6px 6px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .node-type {
+      font-weight: 600;
+      font-size: 13px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .node-delete {
+      background: transparent;
+      border: none;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      line-height: 20px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .node-delete:hover {
+      background: rgba(255,255,255,0.2);
+    }
+    .node-body {
+      padding: 12px;
+      font-size: 12px;
+    }
+    .node-field {
+      margin-bottom: 6px;
+      color: #333;
+    }
+    .node-field strong {
+      color: #666;
+    }
+    .node-footer {
+      padding: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .node-endpoint {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #95a5a6;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .node-endpoint:hover {
+      background: #3498db;
+      transform: scale(1.3);
+    }
+    .node-endpoint.source {
+      background: #27ae60;
+    }
+    .node-endpoint.target {
+      background: #e74c3c;
+    }
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 8px;
+      width: 600px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      font-size: 28px;
+      cursor: pointer;
+      color: #666;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      line-height: 28px;
+    }
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .modal-footer {
+      padding: 20px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      font-size: 13px;
+      color: #333;
+    }
+    .form-control {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: #3498db;
+    }
+
+  script(src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js")
+  script.
+    // Workflow Editor JavaScript
+    let jsPlumbInstance;
+    let nodeCounter = 0;
+    let currentEditingNode = null;
+    let workflowData = !{JSON.stringify(workflow || {})};
+    let servicesList = !{JSON.stringify(servicesList || {fixed: [], static: [], dynamic: []})};
+
+    // Service methods mapping
+    const serviceMethods = {
+      'QUEUE': ['EnJob', 'evaluateJob'],
+      'MONGODB_WORKFLOW': ['findById', 'find', 'findOne', 'create', 'update', 'delete']
+    };
+
+    // Add MinIO methods
+    servicesList.static.forEach(service => {
+      if (service.methods && service.methods.length > 0) {
+        serviceMethods[service.name] = service.methods;
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize jsPlumb
+      jsPlumb.ready(function() {
+        jsPlumbInstance = jsPlumb.getInstance({
+          Endpoint: ["Dot", { radius: 6 }],
+          Connector: "Bezier",
+          HoverPaintStyle: { stroke: "#e74c3c", strokeWidth: 3 },
+          ConnectionOverlays: [
+            ["Arrow", { location: 1, width: 10, length: 10 }]
+          ],
+          Container: "canvas",
+          DragOptions: { cursor: 'move', zIndex: 2000 }
+        });
+
+        // Render children if workflow exists (children on the LEFT of parent)
+        if (workflowData && workflowData.children) {
+          renderChildren(workflowData.children, 'node-parent', 700, 50);
+        }
+
+        // Make ALL nodes draggable after rendering
+        setTimeout(() => {
+          const allNodes = document.querySelectorAll('.workflow-node');
+          allNodes.forEach(node => {
+            jsPlumbInstance.draggable(node, {
+              containment: 'parent',
+              grid: [10, 10]
+            });
+          });
+        }, 200);
+      });
+
+      // Drag and drop from palette
+      const templates = document.querySelectorAll('.node-template');
+      templates.forEach(template => {
+        template.addEventListener('dragstart', handleDragStart);
+      });
+
+      const canvas = document.getElementById('canvas');
+      canvas.addEventListener('dragover', handleDragOver);
+      canvas.addEventListener('drop', handleDrop);
+
+      // Modal handlers
+      document.querySelectorAll('.modal-close').forEach(btn => {
+        btn.addEventListener('click', closeModal);
+      });
+
+      document.getElementById('cancel-node').addEventListener('click', closeModal);
+      document.getElementById('save-node').addEventListener('click', saveNode);
+      document.getElementById('save-workflow').addEventListener('click', saveWorkflow);
+      document.getElementById('clear-canvas').addEventListener('click', clearCanvas);
+
+      // Service type change handler
+      document.getElementById('node-service-type').addEventListener('change', function(e) {
+        const selectedService = e.target.value;
+        const serviceNameInput = document.getElementById('node-service');
+        const methodSelect = document.getElementById('node-method-select');
+        const methodInput = document.getElementById('node-method');
+
+        // Set service name
+        serviceNameInput.value = selectedService;
+
+        // Populate methods dropdown
+        methodSelect.innerHTML = '<option value="">-- Select method --</option>';
+
+        if (serviceMethods[selectedService]) {
+          // Show dropdown, hide input
+          methodSelect.style.display = 'block';
+          methodInput.style.display = 'none';
+
+          serviceMethods[selectedService].forEach(method => {
+            const option = document.createElement('option');
+            option.value = method;
+            option.textContent = method;
+            methodSelect.appendChild(option);
+          });
+        } else {
+          // For dynamic gRPC services, hide dropdown and show manual input
+          methodSelect.style.display = 'none';
+          methodInput.style.display = 'block';
+          methodInput.placeholder = 'Enter method name (e.g., ListFiles, UpdateFile)';
+        }
+
+        // Show/hide code group based on service
+        if (selectedService === 'QUEUE') {
+          document.getElementById('code-group').style.display = 'block';
+        }
+      });
+
+      // Method select change handler for evaluateJob
+      document.getElementById('node-method-select').addEventListener('change', function(e) {
+        if (e.target.value === 'evaluateJob') {
+          document.getElementById('code-group').style.display = 'block';
+        } else {
+          document.getElementById('code-group').style.display = 'none';
+        }
+      });
+    });
+
+    function renderChildren(children, parentId, startX, startY) {
+      children.forEach((child, index) => {
+        const nodeId = `node-${++nodeCounter}`;
+        const y = startY + (index * 200);
+
+        createNode(nodeId, child.serviceName, child.method, child.params, startX, y, child.options || {});
+
+        // Connect child to parent (bottom-up flow)
+        setTimeout(() => {
+          jsPlumbInstance.connect({
+            source: nodeId,
+            target: parentId,
+            anchor: ["Left", "Right"],
+            paintStyle: { stroke: "#3498db", strokeWidth: 2 }
+          });
+        }, 100);
+
+        // Render nested children (move LEFT for deeper levels)
+        if (child.children && child.children.length > 0) {
+          renderChildren(child.children, nodeId, startX - 350, y);
+        }
+      });
+    }
+
+    // Helper to shorten service name for display
+    function getDisplayName(serviceName) {
+      if (serviceName.startsWith('MINIO_SERVICE_')) {
+        return 'MINIO_' + serviceName.replace('MINIO_SERVICE_', '').substring(0, 8) + '...';
+      }
+      return serviceName;
+    }
+
+    function createNode(id, serviceName, method, params, x, y, options = {}) {
+      const node = document.createElement('div');
+      node.className = 'workflow-node';
+      node.id = id;
+      node.style.left = x + 'px';
+      node.style.top = y + 'px';
+      node.dataset.service = serviceName;
+      node.dataset.method = method;
+      node.dataset.params = JSON.stringify(params || {});
+      node.dataset.options = JSON.stringify(options || {});
+
+      const isEvaluate = method === 'evaluateJob';
+      const headerColor = isEvaluate ? '#9b59b6' : '#3498db';
+      const displayName = getDisplayName(serviceName);
+
+      node.innerHTML = `
+        <div class="node-header" style="background: ${headerColor};">
+          <div class="node-type" title="${serviceName}">${displayName}</div>
+          <button class="node-delete" type="button">×</button>
+        </div>
+        <div class="node-body">
+          <div class="node-field"><strong>Method:</strong> ${method}</div>
+          ${isEvaluate ? '<div class="node-field"><strong>Type:</strong> Code Evaluation</div>' : ''}
+        </div>
+        <div class="node-footer">
+          <div class="node-endpoint source" data-type="output" title="Output"></div>
+          <div class="node-endpoint target" data-type="input" title="Input"></div>
+        </div>
+      `;
+
+      document.getElementById('canvas').appendChild(node);
+
+      // Make draggable with grid snap
+      jsPlumbInstance.draggable(node, {
+        containment: 'parent',
+        grid: [10, 10],
+        cursor: 'move'
+      });
+
+      // Add endpoints
+      jsPlumbInstance.addEndpoint(node, {
+        anchor: "Left",
+        isTarget: true,
+        maxConnections: -1
+      });
+
+      jsPlumbInstance.addEndpoint(node, {
+        anchor: "Right",
+        isSource: true,
+        maxConnections: -1
+      });
+
+      // Edit on double click
+      node.addEventListener('dblclick', () => editNode(node));
+
+      // Delete button
+      node.querySelector('.node-delete').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteNode(node);
+      });
+
+      return node;
+    }
+
+    function handleDragStart(e) {
+      e.dataTransfer.setData('nodeType', e.currentTarget.dataset.type);
+      e.dataTransfer.setData('serviceName', e.currentTarget.dataset.serviceName || '');
+      e.dataTransfer.setData('method', e.currentTarget.dataset.method || '');
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      const nodeType = e.dataTransfer.getData('nodeType');
+      const serviceName = e.dataTransfer.getData('serviceName');
+      const method = e.dataTransfer.getData('method');
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const nodeId = `node-${++nodeCounter}`;
+
+      // If service name is predefined, use it; otherwise open modal for custom
+      if (serviceName && method) {
+        // Pre-defined service node
+        createNode(nodeId, serviceName, method, {}, x, y);
+      } else if (serviceName && !method) {
+        // Service defined but no method (Static/Dynamic services)
+        const node = createNode(nodeId, serviceName, 'selectMethod', {}, x, y);
+        // Auto-open edit modal
+        setTimeout(() => editNode(node), 100);
+      } else {
+        // Custom node - need to select everything
+        const node = createNode(nodeId, 'SELECT_SERVICE', 'selectMethod', {}, x, y);
+        setTimeout(() => editNode(node), 100);
+      }
+    }
+
+    function editNode(node) {
+      currentEditingNode = node;
+      const serviceName = node.dataset.service || '';
+      const methodName = node.dataset.method || '';
+
+      // Set service type dropdown
+      document.getElementById('node-service-type').value = serviceName;
+      document.getElementById('node-service').value = serviceName;
+
+      // Populate methods based on service
+      const methodSelect = document.getElementById('node-method-select');
+      const methodInput = document.getElementById('node-method');
+
+      methodSelect.innerHTML = '<option value="">-- Select method --</option>';
+
+      if (serviceMethods[serviceName]) {
+        // Show dropdown, hide input
+        methodSelect.style.display = 'block';
+        methodInput.style.display = 'none';
+
+        serviceMethods[serviceName].forEach(method => {
+          const option = document.createElement('option');
+          option.value = method;
+          option.textContent = method;
+          if (method === methodName) option.selected = true;
+          methodSelect.appendChild(option);
+        });
+      } else {
+        // Show manual input, hide dropdown (for dynamic gRPC services)
+        methodSelect.style.display = 'none';
+        methodInput.style.display = 'block';
+        methodInput.value = methodName;
+      }
+
+      const params = JSON.parse(node.dataset.params || '{}');
+      const options = JSON.parse(node.dataset.options || '{}');
+
+      if (params.code) {
+        document.getElementById('node-code').value = params.code;
+        document.getElementById('code-group').style.display = 'block';
+        document.getElementById('node-params').value = JSON.stringify({returnValue: params.returnValue || ''}, null, 2);
+      } else {
+        document.getElementById('code-group').style.display = 'none';
+        document.getElementById('node-params').value = JSON.stringify(params, null, 2);
+      }
+
+      // Load options
+      document.getElementById('node-options').value = Object.keys(options).length > 0 ? JSON.stringify(options, null, 2) : '';
+
+      document.getElementById('node-modal').style.display = 'flex';
+    }
+
+    function saveNode() {
+      if (!currentEditingNode) return;
+
+      const service = document.getElementById('node-service').value;
+
+      // Get method from either select or input
+      const methodSelect = document.getElementById('node-method-select');
+      const methodInput = document.getElementById('node-method');
+      const method = methodSelect.style.display === 'none' ? methodInput.value : methodSelect.value;
+
+      if (!method) {
+        alert('Please select or enter a method');
+        return;
+      }
+
+      let params = {};
+      let options = {};
+
+      try {
+        params = JSON.parse(document.getElementById('node-params').value || '{}');
+      } catch (e) {
+        alert('Invalid JSON in parameters');
+        return;
+      }
+
+      // Parse options if provided
+      const optionsValue = document.getElementById('node-options').value.trim();
+      if (optionsValue) {
+        try {
+          options = JSON.parse(optionsValue);
+        } catch (e) {
+          alert('Invalid JSON in options');
+          return;
+        }
+      }
+
+      // If evaluate job, add code
+      if (method === 'evaluateJob') {
+        params.code = document.getElementById('node-code').value;
+      }
+
+      currentEditingNode.dataset.service = service;
+      currentEditingNode.dataset.method = method;
+      currentEditingNode.dataset.params = JSON.stringify(params);
+      currentEditingNode.dataset.options = JSON.stringify(options);
+
+      // Update node display
+      const isEvaluate = method === 'evaluateJob';
+      const headerColor = isEvaluate ? '#9b59b6' : '#3498db';
+
+      currentEditingNode.querySelector('.node-header').style.background = headerColor;
+      currentEditingNode.querySelector('.node-type').textContent = service;
+      currentEditingNode.querySelector('.node-body').innerHTML = `
+        <div class="node-field"><strong>Method:</strong> ${method}</div>
+        ${isEvaluate ? '<div class="node-field"><strong>Type:</strong> Code Evaluation</div>' : ''}
+      `;
+
+      closeModal();
+    }
+
+    function deleteNode(node) {
+      if (confirm('Delete this node?')) {
+        jsPlumbInstance.remove(node);
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('node-modal').style.display = 'none';
+      currentEditingNode = null;
+    }
+
+    function saveWorkflow() {
+      // TODO: Build workflow JSON and send to server
+      const nodes = document.querySelectorAll('.workflow-node');
+      console.log('Saving workflow...', nodes.length, 'nodes');
+      alert('Workflow save functionality coming soon!');
+    }
+
+    function clearCanvas() {
+      if (confirm('Clear entire canvas?')) {
+        jsPlumbInstance.deleteEveryConnection();
+        document.querySelectorAll('.workflow-node:not(#node-parent)').forEach(node => {
+          node.remove();
+        });
+        nodeCounter = 0;
+      }
+    }

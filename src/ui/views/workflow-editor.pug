@@ -1,0 +1,244 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title= title || 'Workflow Editor'
+    link(rel="stylesheet" href="/public/css/workflow-editor.css")
+    script(src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js")
+    style.
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        background: #f5f5f5;
+        display: flex;
+        height: 100vh;
+      }
+      .sidebar {
+        width: 250px;
+        background: #2c3e50;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+      }
+      .sidebar-header {
+        padding: 20px;
+        background: #1a252f;
+        border-bottom: 1px solid #34495e;
+      }
+      .sidebar-header h1 {
+        font-size: 20px;
+        margin-bottom: 5px;
+      }
+      .sidebar-header p {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+      .nav-tabs {
+        flex: 1;
+        padding: 15px 0;
+      }
+      .nav-tab {
+        display: block;
+        padding: 12px 20px;
+        color: #ecf0f1;
+        text-decoration: none;
+        transition: all 0.3s;
+        border-left: 3px solid transparent;
+      }
+      .nav-tab:hover {
+        background: #34495e;
+        border-left-color: #3498db;
+      }
+      .nav-tab.active {
+        background: #34495e;
+        border-left-color: #3498db;
+        font-weight: 600;
+      }
+      .main-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .content-header {
+        background: white;
+        padding: 20px 30px;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      .content-header h2 {
+        font-size: 24px;
+        color: #2c3e50;
+        margin-bottom: 5px;
+      }
+      .content-header p {
+        color: #7f8c8d;
+        font-size: 14px;
+      }
+      .content {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+      }
+
+  body
+    //- Sidebar
+    .sidebar
+      .sidebar-header
+        h1 Admin Panel
+        p Quản lý Service, Job và Workflow
+      .nav-tabs
+        a.nav-tab(href="/admin") BullMQ
+        a.nav-tab.active(href="/admin/workflow") Workflow
+        a.nav-tab(href="/admin/services") Manager Service
+        a.nav-tab(href="/admin/minio") Manager MinIO
+
+    //- Main Content
+    .main-content
+      .content-header
+        h2 Workflow Editor
+        p Tạo và chỉnh sửa workflow với visual editor
+        .header-actions(style="margin-top: 10px;")
+          button#save-workflow.btn.btn-primary Save Workflow
+          button#clear-canvas.btn.btn-secondary Clear Canvas
+          button#center-view.btn.btn-secondary Center View (Parent Node)
+
+      .content(style="padding: 0; display: flex; height: 100%; position: relative;")
+        //- Sidebar - Node palette
+        .node-palette(style="width: 250px; background: #f8f9fa; border-right: 1px solid #dee2e6; padding: 15px; overflow-y: auto; position: absolute; left: 0; top: 0; bottom: 0; z-index: 1000;")
+          h4(style="margin-bottom: 15px; color: #333;") Add Nodes
+
+          .node-category(style="margin-bottom: 20px;")
+            h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Fixed Services
+            .draggable-node.node-template(data-type="queue" data-service-name="QUEUE" data-method="EnJob" draggable="true" style="margin-bottom: 8px;")
+              .node-icon 📋
+              .node-label QUEUE (EnJob)
+            .draggable-node.node-template(data-type="evaluate" data-service-name="QUEUE" data-method="evaluateJob" draggable="true" style="margin-bottom: 8px;")
+              .node-icon 💻
+              .node-label QUEUE (evaluateJob)
+            .draggable-node.node-template(data-type="workflow" data-service-name="MONGODB_WORKFLOW" data-method="findById" draggable="true" style="margin-bottom: 8px;")
+              .node-icon 🔄
+              .node-label MONGODB_WORKFLOW
+
+          .node-category(style="margin-bottom: 20px;")
+            h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Static Services (Internal)
+            if servicesList && servicesList.static
+              each service in servicesList.static
+                .draggable-node.node-template(data-type="static" data-service-name=service.name draggable="true" style="margin-bottom: 8px;")
+                  .node-icon 💾
+                  .node-label= service.name.replace('MINIO_SERVICE_', 'MINIO_')
+
+          .node-category(style="margin-bottom: 20px;")
+            h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Dynamic Services (gRPC)
+            if servicesList && servicesList.dynamic
+              each service in servicesList.dynamic
+                .draggable-node.node-template(data-type="dynamic" data-service-name=service.name draggable="true" style="margin-bottom: 8px;")
+                  .node-icon 🔧
+                  .node-label= service.name
+
+          .node-category(style="margin-bottom: 20px;")
+            h5(style="font-size: 13px; color: #666; margin-bottom: 10px;") Custom
+            .draggable-node.node-template(data-type="custom" draggable="true" style="margin-bottom: 8px;")
+              .node-icon ⚙️
+              .node-label Custom Service
+
+        //- Main canvas
+        .workflow-canvas(style="flex: 1; position: relative; background: #fff; overflow: auto; z-index: 1; isolation: isolate; margin-left: 250px;")
+          #canvas(style="min-width: 2000px; min-height: 1500px; width: 100%; height: 100%; position: relative; background-image: radial-gradient(circle, #e0e0e0 1px, transparent 1px); background-size: 20px 20px;")
+            //- Parent node - always render (for new or existing workflow)
+            - var parentService = workflow ? workflow.parentServiceName : 'QUEUE'
+            - var parentMethod = workflow ? workflow.parentMethod : 'EnJob'
+            - var parentParams = workflow ? workflow.parentParams : {}
+            - var parentOptions = workflow ? (workflow.options || {}) : {}
+            .workflow-node#node-parent(
+              data-node-id="parent"
+              data-service=parentService
+              data-method=parentMethod
+              data-params=JSON.stringify(parentParams)
+              data-options=JSON.stringify(parentOptions)
+              style="position: absolute; left: 1100px; top: 50px;"
+            )
+              .node-header(style="background: #27ae60;")
+                .node-type(title=parentService) 🎯 Parent Job
+              .node-body
+                .node-field
+                  strong Service:
+                  span= parentService
+                .node-field
+                  strong Method:
+                  span= parentMethod
+                .node-field(style="margin-top: 12px; text-align: center;")
+                  button.btn.btn-primary(onclick="editParentNode()" style="width: 100%; font-size: 13px; padding: 8px 12px; font-weight: 600;") ✏️ Edit Parent
+              .node-footer
+                .node-endpoint.source(data-type="output" title="Output (connect to parent)")
+                .node-endpoint.target(data-type="input" title="Input (receive from children)")
+
+    //- Modal for editing node
+    .modal#node-modal(style="display: none;")
+      .modal-content
+        .modal-header
+          h3 Edit Node
+          button.modal-close ×
+        .modal-body
+          form#node-form
+            .form-group
+              label Service Type
+              select#node-service-type.form-control
+                option(value="") -- Select Type --
+                optgroup(label="Fixed Services")
+                  option(value="QUEUE") QUEUE (EnJob, evaluateJob)
+                  option(value="MONGODB_WORKFLOW") MONGODB_WORKFLOW
+                optgroup(label="Static Services (Internal)")
+                  if servicesList && servicesList.static
+                    each service in servicesList.static
+                      option(value=service.name)= service.name
+                optgroup(label="Dynamic Services (gRPC)")
+                  if servicesList && servicesList.dynamic
+                    each service in servicesList.dynamic
+                      option(value=service.name)= service.name
+
+            .form-group
+              label Service Name
+              input#node-service.form-control(type="text" readonly placeholder="Auto-filled from type")
+
+            .form-group
+              label Name
+              input#node-name.form-control(type="text" readonly placeholder="Workflow name")
+
+            .form-group
+              label Method
+              select#node-method-select.form-control(style="margin-bottom: 8px;")
+                option(value="") -- Select service first --
+              input#node-method.form-control(type="text" placeholder="Or enter method name manually" style="display: none;")
+
+            .form-group
+              label Parameters
+              textarea#node-params.form-control(rows="8" placeholder='Can be: JSON object {"key": "value"}, array [1,2,3], string "text", number 123')
+              small(style="color: #666; font-size: 11px;") Supports JSON, string, number, array, or any value
+
+            .form-group
+              label Options (JobsOptions - optional)
+              textarea#node-options.form-control(rows="6" placeholder='{"delay": 5000, "priority": 1, "attempts": 3}')
+              small(style="color: #666; font-size: 11px;") BullMQ job options: delay, priority, attempts, backoff, etc.
+
+            .form-group(id="code-group" style="display: none;")
+              label Code (TypeScript)
+                span(style="color: red; font-weight: bold;") *
+              textarea#node-code.form-control(rows="15" placeholder="// Write your code here\n// Example:\n// const result = await someFunction();\n// return result;")
+              small(style="color: #e74c3c; font-size: 11px; font-weight: 600;") Required for evaluateJob method
+        .modal-footer
+          button#cancel-node.btn.btn-secondary Cancel
+          button#save-node.btn.btn-primary Save
+
+    //- Inject server data into JavaScript
+    script.
+      window.WORKFLOW_DATA = !{JSON.stringify(workflow || {})};
+      window.SERVICES_LIST = !{JSON.stringify(servicesList || {fixed: [], static: [], dynamic: []})};
+
+    //- Load workflow editor JavaScript
+    script(src="/public/js/workflow-editor.js")

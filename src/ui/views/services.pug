@@ -1,0 +1,188 @@
+extends layout
+
+block content
+  .content-header
+    h2 Manager Service
+    p Danh sách các gRPC services và trạng thái kết nối
+    .actions-bar
+      button.btn.btn-primary(type="button" id="createServiceBtn") + Tạo Service
+  .content
+    if services.length === 0
+      p(style="color: #666;") Không có service nào.
+    else
+      table
+        thead
+          tr
+            th Service Name
+            th Host
+            th Port
+            th Status
+            th Enabled
+            th Last Check
+            th Actions
+        tbody
+          each service in services
+            tr
+              td
+                strong= service.name
+              td= service.url
+              td= service.port
+              td
+                if service.healthy
+                  span.status-badge.status-connected Connected
+                else
+                  span.status-badge.status-disconnected Disconnected
+              td
+                if service.enabled
+                  span.status-badge.status-connected Enabled
+                else
+                  span.status-badge.status-disconnected Disabled
+              td= service.lastHealthCheck ? new Date(service.lastHealthCheck).toLocaleString() : 'N/A'
+              td
+                button.btn.btn-secondary.toggle-service(
+                  type="button",
+                  data-id=service._id,
+                  data-name=service.name,
+                  data-enabled=service.enabled
+                )= service.enabled ? 'Disable' : 'Enable'
+                button.btn.btn-danger.delete-service(
+                  type="button",
+                  data-id=service._id,
+                  data-name=service.name
+                ) Delete
+  #createServiceModal.modal.hidden
+    .modal-content
+      h3 Tạo Service mới
+      form#createServiceForm
+        .form-group
+          label(for="serviceName") Tên Service
+          input#serviceName(type="text" name="name" required placeholder="FILE_SERVICE")
+        .form-group
+          label(for="serviceUrl") Host
+          input#serviceUrl(type="text" name="url" required placeholder="localhost")
+        .form-group
+          label(for="servicePort") Port
+          input#servicePort(type="number" name="port" required min="1" max="65535" value="50051")
+        .form-group
+          label(for="serviceProtocol") Protocol
+          select#serviceProtocol(name="protocol" required)
+            option(value="grpc" selected) gRPC
+            option(value="http") HTTP
+            option(value="https") HTTPS
+        .form-group
+          label(for="serviceProtoPath") Proto Path
+          input#serviceProtoPath(type="text" name="protoPath" placeholder="/home/.../service.proto")
+        .form-group
+          label(for="serviceProtoPackage") Proto Package
+          input#serviceProtoPackage(type="text" name="protoPackage" placeholder="file.FileService")
+        .form-group.checkbox
+          label
+            input#serviceEnable(type="checkbox" name="enabled")
+            |  Enable ngay sau khi tạo
+        .modal-actions
+          button.btn.btn-primary(type="submit") Tạo
+          button.btn(type="button" id="cancelCreateServiceBtn") Hủy
+  script.
+    (function() {
+      const createBtn = document.getElementById('createServiceBtn');
+      const modal = document.getElementById('createServiceModal');
+      const form = document.getElementById('createServiceForm');
+      const cancelBtn = document.getElementById('cancelCreateServiceBtn');
+
+      function openModal() {
+        modal.classList.remove('hidden');
+      }
+
+      function closeModal() {
+        modal.classList.add('hidden');
+        form.reset();
+      }
+
+      createBtn?.addEventListener('click', openModal);
+      cancelBtn?.addEventListener('click', closeModal);
+
+      form?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const payload = {};
+        formData.forEach((value, key) => {
+          if (key === 'enabled') {
+            payload[key] = value === 'on';
+          } else if (key === 'port') {
+            payload[key] = Number(value);
+          } else {
+            payload[key] = value;
+          }
+        });
+
+        try {
+          const response = await fetch('/admin/api/services', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || 'Failed to create service');
+          }
+
+          window.location.reload();
+        } catch (error) {
+          alert(error.message || 'Có lỗi xảy ra khi tạo service');
+        }
+      });
+
+      document.querySelectorAll('.toggle-service').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const id = button.getAttribute('data-id');
+          const enabled = button.getAttribute('data-enabled') === 'true';
+          try {
+            const response = await fetch(`/admin/api/services/${id}/toggle`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                enabled: !enabled
+              })
+            });
+
+            if (!response.ok) {
+              const error = await response.json().catch(() => ({}));
+              throw new Error(error.error || 'Failed to update service');
+            }
+
+            window.location.reload();
+          } catch (error) {
+            alert(error.message || 'Có lỗi xảy ra khi cập nhật service');
+          }
+        });
+      });
+
+      document.querySelectorAll('.delete-service').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const id = button.getAttribute('data-id');
+          const name = button.getAttribute('data-name');
+          if (!confirm(`Bạn có chắc muốn xóa service ${name}?`)) {
+            return;
+          }
+          try {
+            const response = await fetch(`/admin/api/services/${id}`, {
+              method: 'DELETE'
+            });
+
+            if (!response.ok) {
+              const error = await response.json().catch(() => ({}));
+              throw new Error(error.error || 'Failed to delete service');
+            }
+
+            window.location.reload();
+          } catch (error) {
+            alert(error.message || 'Có lỗi xảy ra khi xóa service');
+          }
+        });
+      });
+    })();

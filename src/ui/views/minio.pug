@@ -1,0 +1,47 @@
+extends layout
+
+block content
+  .content-header
+    h2 Manager MinIO
+    p Danh sách các MinIO configurations và trạng thái kết nối
+  .content
+    if minioConfigs.length === 0
+      p(style="color: #666;") Không có MinIO config nào.
+    else
+      table
+        thead
+          tr
+            th Name
+            th Endpoint
+            th Port
+            th Bucket
+            th SSL
+            th Status
+            th Enabled
+            th Region
+        tbody
+          each config in minioConfigs
+            tr
+              td
+                strong= config.name
+              td= config.endPoint
+              td= config.port
+              td= config.bucketName
+              td
+                if config.useSSL
+                  span.status-badge.status-connected Yes
+                else
+                  span.status-badge.status-unknown No
+              td
+                if config.connectionStatus && config.connectionStatus.connected
+                  span.status-badge.status-connected Connected
+                else if config.connectionStatus
+                  span.status-badge.status-disconnected Disconnected
+                else
+                  span.status-badge.status-unknown Unknown
+              td
+                if config.enabled
+                  span.status-badge.status-connected Enabled
+                else
+                  span.status-badge.status-disconnected Disabled
+              td= config.region || 'N/A'

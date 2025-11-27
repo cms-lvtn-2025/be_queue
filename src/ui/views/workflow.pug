@@ -1,0 +1,379 @@
+extends layout
+
+block content
+  .content-header
+    h2 Workflow Manager
+    p Quản lý và theo dõi workflows
+    .header-actions(style="margin-top: 10px; display: flex; gap: 10px;")
+      a.btn.btn-primary(href="/admin/workflow/editor" style="text-decoration: none; display: inline-block;") + New Workflow
+      button.btn.btn-success(onclick="enableAllCronJobs()" style="background: #27ae60;") Enable All CronJobs
+      button.btn.btn-warning(onclick="disableAllCronJobs()" style="background: #f39c12;") Disable All CronJobs
+
+  .content
+    if workflows.length === 0
+      p(style="color: #666;") Không có workflow nào.
+    else
+      table
+        thead
+          tr
+            th Workflow ID
+            th Workflow Name
+            th Parent Service
+            th Parent Method
+            th Children Count
+            th CronJob Status
+            th Created At
+            th Workflow Actions
+            th CronJob Actions
+        tbody
+          each workflow in workflows
+            tr
+              td
+                strong= workflow._id
+              td= workflow.name
+              td= workflow.parentServiceName
+              td= workflow.parentMethod
+              td= workflow.children ? workflow.children.length : 0
+              td
+                if workflow.hasCronJob
+                  .cronjob-status
+                    span.badge.badge-success ✓ Active
+                    br
+                    small.cronjob-schedule= workflow.cronJob.schedule
+                    br
+                    small.cronjob-enabled(style=workflow.cronJob.enabled ? 'color: #27ae60;' : 'color: #95a5a6;')= workflow.cronJob.enabled ? 'Enabled' : 'Disabled'
+                else
+                  span.badge.badge-secondary ✗ No CronJob
+              td= workflow.createdAt ? new Date(workflow.createdAt).toLocaleString() : 'N/A'
+              td
+                .action-buttons
+                  a.btn.btn-sm.btn-primary(href=`/admin/workflow/editor/${workflow._id}` style="text-decoration: none;") Edit
+                  button.btn.btn-sm.btn-danger(onclick=`deleteWorkflow('${workflow._id}')`) Delete
+              td
+                .action-buttons
+                  if workflow.hasCronJob
+                    button.btn.btn-sm.btn-warning(onclick=`editCronJob('${workflow.cronJob._id}', '${workflow.cronJob.schedule}', ${workflow.cronJob.enabled})` style="background: #f39c12;") Edit
+                    if workflow.cronJob.enabled
+                      button.btn.btn-sm.btn-secondary(onclick=`toggleCronJob('${workflow.cronJob._id}', false)` style="background: #95a5a6;") Disable
+                    else
+                      button.btn.btn-sm.btn-success(onclick=`toggleCronJob('${workflow.cronJob._id}', true)` style="background: #27ae60;") Enable
+                    button.btn.btn-sm.btn-danger(onclick=`deleteCronJob('${workflow.cronJob._id}')`) Delete
+                  else
+                    button.btn.btn-sm.btn-success(onclick=`createCronJob('${workflow._id}')` style="background: #27ae60;") Create
+
+  style.
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #3498db;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #2980b9;
+    }
+    .btn-danger {
+      background: #e74c3c;
+      color: white;
+    }
+    .btn-danger:hover {
+      background: #c0392b;
+    }
+    .btn-success {
+      background: #27ae60;
+      color: white;
+    }
+    .btn-success:hover {
+      background: #229954;
+    }
+    .btn-warning {
+      background: #f39c12;
+      color: white;
+    }
+    .btn-warning:hover {
+      background: #e67e22;
+    }
+    .btn-secondary {
+      background: #95a5a6;
+      color: white;
+    }
+    .btn-secondary:hover {
+      background: #7f8c8d;
+    }
+    .btn-sm {
+      padding: 4px 12px;
+      font-size: 12px;
+      margin-right: 4px;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-success {
+      background: #d4edda;
+      color: #155724;
+    }
+    .badge-secondary {
+      background: #e2e3e5;
+      color: #6c757d;
+    }
+    .cronjob-status {
+      text-align: left;
+    }
+    .cronjob-schedule {
+      font-family: monospace;
+      color: #555;
+      font-size: 11px;
+    }
+    .cronjob-enabled {
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+  script.
+    // Delete Workflow
+    async function deleteWorkflow(workflowId) {
+      if (!confirm('Are you sure you want to delete this workflow?')) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/admin/workflow/${workflowId}`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          alert('Workflow deleted successfully!');
+          window.location.reload();
+        } else {
+          const error = await response.json();
+          alert('Failed to delete workflow: ' + (error.error || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Error deleting workflow:', error);
+        alert('Failed to delete workflow. Please try again.');
+      }
+    }
+
+    // Create CronJob
+    async function createCronJob(workflowId) {
+      const schedule = prompt('Enter cron schedule (e.g., "* * * * *" for every minute):', '* * * * *');
+      if (!schedule) return;
+
+      try {
+        const response = await fetch('/admin/api/cronjobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflowId: workflowId,
+            schedule: schedule,
+            enabled: true
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          alert('CronJob created successfully!');
+          window.location.reload();
+        } else {
+          alert('Failed to create CronJob: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error creating CronJob:', error);
+        alert('Failed to create CronJob. Please try again.');
+      }
+    }
+
+    // Edit CronJob
+    async function editCronJob(cronJobId, currentSchedule, currentEnabled) {
+      const schedule = prompt('Enter new cron schedule:', currentSchedule);
+      if (!schedule) return;
+
+      const enabled = confirm('Enable this CronJob?');
+
+      try {
+        const response = await fetch(`/admin/api/cronjobs/${cronJobId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            schedule: schedule,
+            enabled: enabled
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          alert('CronJob updated successfully!');
+          window.location.reload();
+        } else {
+          alert('Failed to update CronJob: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error updating CronJob:', error);
+        alert('Failed to update CronJob. Please try again.');
+      }
+    }
+
+    // Toggle CronJob (Enable/Disable individual)
+    async function toggleCronJob(cronJobId, enabled) {
+      const action = enabled ? 'enable' : 'disable';
+      if (!confirm(`Are you sure you want to ${action} this CronJob?`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/admin/api/cronjobs/${cronJobId}/toggle`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: enabled })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          alert(`CronJob ${enabled ? 'enabled' : 'disabled'} successfully!`);
+          window.location.reload();
+        } else {
+          alert(`Failed to ${action} CronJob: ` + result.error);
+        }
+      } catch (error) {
+        console.error(`Error ${action}ing CronJob:`, error);
+        alert(`Failed to ${action} CronJob. Please try again.`);
+      }
+    }
+
+    // Delete CronJob
+    async function deleteCronJob(cronJobId) {
+      if (!confirm('Are you sure you want to delete this CronJob?')) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/admin/api/cronjobs/${cronJobId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          alert('CronJob deleted successfully!');
+          window.location.reload();
+        } else {
+          alert('Failed to delete CronJob: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error deleting CronJob:', error);
+        alert('Failed to delete CronJob. Please try again.');
+      }
+    }
+
+    // Enable All CronJobs
+    async function enableAllCronJobs() {
+      if (!confirm('Enable all CronJobs?')) {
+        return;
+      }
+
+      try {
+        // Get all cronjobs
+        const response = await fetch('/admin/api/cronjobs');
+        const result = await response.json();
+
+        if (!result.success) {
+          alert('Failed to fetch CronJobs: ' + result.error);
+          return;
+        }
+
+        const cronJobs = result.data;
+        let successCount = 0;
+        let errorCount = 0;
+
+        // Enable each cronjob
+        for (const cronJob of cronJobs) {
+          try {
+            const updateResponse = await fetch(`/admin/api/cronjobs/${cronJob._id}/toggle`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: true })
+            });
+
+            const updateResult = await updateResponse.json();
+            if (updateResult.success) {
+              successCount++;
+            } else {
+              errorCount++;
+            }
+          } catch (error) {
+            errorCount++;
+          }
+        }
+
+        alert(`Enabled ${successCount} CronJobs (${errorCount} errors)`);
+        window.location.reload();
+      } catch (error) {
+        console.error('Error enabling all CronJobs:', error);
+        alert('Failed to enable all CronJobs. Please try again.');
+      }
+    }
+
+    // Disable All CronJobs
+    async function disableAllCronJobs() {
+      if (!confirm('Disable all CronJobs?')) {
+        return;
+      }
+
+      try {
+        // Get all cronjobs
+        const response = await fetch('/admin/api/cronjobs');
+        const result = await response.json();
+
+        if (!result.success) {
+          alert('Failed to fetch CronJobs: ' + result.error);
+          return;
+        }
+
+        const cronJobs = result.data;
+        let successCount = 0;
+        let errorCount = 0;
+
+        // Disable each cronjob
+        for (const cronJob of cronJobs) {
+          try {
+            const updateResponse = await fetch(`/admin/api/cronjobs/${cronJob._id}/toggle`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: false })
+            });
+
+            const updateResult = await updateResponse.json();
+            if (updateResult.success) {
+              successCount++;
+            } else {
+              errorCount++;
+            }
+          } catch (error) {
+            errorCount++;
+          }
+        }
+
+        alert(`Disabled ${successCount} CronJobs (${errorCount} errors)`);
+        window.location.reload();
+      } catch (error) {
+        console.error('Error disabling all CronJobs:', error);
+        alert('Failed to disable all CronJobs. Please try again.');
+      }
+    }

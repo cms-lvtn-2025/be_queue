@@ -1,0 +1,23 @@
+[
+  {
+    "name": "MINIO",
+    "endPoint": "127.0.0.1",
+    "port": 10005,
+    "useSSL": false,
+    "accessKey": "thaily",
+    "secretKey": "Th@i2004",
+    "bucketName": "lvtn",
+    "enabled": true,
+    "region": "us-east-1",
+    "metadata": {
+      "description": "MinIO configuration for thesis plagiarism checker",
+      "createdBy": "manual-import"
+    },
+    "createdAt": {
+      "$date": "2024-01-01T00:00:00.000Z"
+    },
+    "updatedAt": {
+      "$date": "2024-01-01T00:00:00.000Z"
+    }
+  }
+]
