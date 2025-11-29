@@ -30,8 +30,8 @@ export class GrpcService extends ExternalService {
         );
       }
       const protoDir = path.dirname(service.protoPath);
-      const protoBaseDir = path.resolve("/home/thaily/code/heheheh_be/proto");
-      const protoParentDir = path.resolve("/home/thaily/code/heheheh_be");
+      const protoBaseDir = path.resolve("/home/thaily/code/lvtn/BE_main/proto");
+      const protoParentDir = path.resolve("/home/thaily/code/lvtn/BE_main");
 
       const packageDefinition = protoLoader.loadSync(service.protoPath, {
         keepCase: true,

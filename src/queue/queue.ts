@@ -519,7 +519,8 @@ export class QueueService {
       const { v4: uuidv4 } = require("uuid");
       const sandbox = {
         returnValue: params.returnValue,
-        data: params.data || {},
+        
+	data: params.data || {},
         console,
         createJobWithChildren: this.createJobWithChildren.bind(this),
         uuidv4,
