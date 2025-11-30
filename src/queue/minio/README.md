@@ -8,12 +8,9 @@ Hệ thống quản lý MinIO và tạo PDF cho plagiarism checker service.
 minio/
 ├── document.types.ts          # TypeScript interfaces cho templates
 ├── minio.service.ts           # MinIO service class
-├── pdf-generator.ts           # PDF generation logic
-├── test-pdf-gen.ts           # Test PDF generation (có company)
-├── test-pdf-no-company.ts    # Test PDF generation (không có company)
-├── example.usage.ts          # Ví dụ sử dụng đầy đủ
+├── pdf-generator.ts           # PDF generation logic với HTML support
 ├── index.ts                  # Export module
-└── test-output/              # Thư mục chứa PDF test
+└── template/                  # Template files
 ```
 
 ## 🚀 Setup
@@ -44,18 +41,6 @@ db.minio_configs.insertOne({
   updatedAt: new Date()
 })
 ```
-
-### 2. Test PDF Generation
-
-```bash
-# Test với company info
-npx ts-node src/queue/minio/test-pdf-gen.ts
-
-# Test không có company info
-npx ts-node src/queue/minio/test-pdf-no-company.ts
-```
-
-PDF sẽ được tạo trong `src/queue/minio/test-output/`
 
 ## 💻 Sử dụng
 
@@ -226,12 +211,17 @@ Template 1 bao gồm:
 - Mô tả chi tiết
 - Footer với timestamp
 
-## 📚 Examples
+## 🎨 HTML Content Support
 
-Xem thêm trong file:
-- [example.usage.ts](./example.usage.ts) - Các ví dụ sử dụng đầy đủ
-- [test-pdf-gen.ts](./test-pdf-gen.ts) - Test với company
-- [test-pdf-no-company.ts](./test-pdf-no-company.ts) - Test không có company
+PDF Generator hỗ trợ render HTML content từ TinyMCE:
+- ✅ Lists (ul/ol với bullets và numbers)
+- ✅ Tables (với borders)
+- ✅ Headings (h1-h6)
+- ✅ Bold/Italic text
+- ✅ HTML entities (tiếng Việt)
+- ✅ Paragraphs và divs
+
+Chỉ cần truyền HTML string vào `description` field.
 
 ## 🐛 Troubleshooting
 
@@ -243,7 +233,7 @@ Xem thêm trong file:
 ### PDF generation error
 - Xem log chi tiết trong console
 - Check data format theo Template1Data interface
-- Test với file test-pdf-gen.ts
+- Verify HTML content trong description field
 
 ### MongoDB connection error
 - Verify MongoDB đang chạy

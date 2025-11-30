@@ -3,6 +3,7 @@ import { Readable } from 'stream';
 import PDFDocument from 'pdfkit';
 import { Template1Data } from './document.types';
 import { IMinioConfig, MinioConfigModel } from '../../database/models';
+import { renderHtmlDescriptionToPdf } from './html-to-pdf-helper';
 
 export class MinioService {
   private client: Minio.Client;
@@ -342,7 +343,12 @@ export class MinioService {
     const normalizedData: Template1Data = this.normalizeTemplate1Data(data);
     console.log('Normalized data:', normalizedData);
 
-    return new Promise((resolve, reject) => {
+    // Lưu description để render sau với Puppeteer
+    const descriptionHtml = normalizedData.description;
+    // Tạm thời remove description để render PDF chính trước
+    const dataWithoutDescription = { ...normalizedData, description: '' };
+
+    return new Promise(async (resolve, reject) => {
       try {
         const doc = new PDFDocument({
           size: 'A4',
@@ -358,13 +364,122 @@ export class MinioService {
 
         // Collect PDF chunks
         doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', async () => {
+          try {
+            const mainPdfBuffer = Buffer.concat(chunks);
+            
+            // Nếu có description, render với Puppeteer
+            if (descriptionHtml) {
+              const descriptionPdf = await renderHtmlDescriptionToPdf(descriptionHtml);
+              
+              if (descriptionPdf) {
+                // Merge 2 PDF bằng cách append description PDF vào cuối
+                try {
+                  const merged = await this.mergePdfBuffers(mainPdfBuffer, descriptionPdf);
+                  resolve(merged);
+                  return;
+                } catch (mergeError) {
+                  console.warn('Could not merge PDFs, using fallback method:', mergeError);
+                  // Fallback: generate lại PDF với description bằng PDFGenerator parser
+                  const fallbackPdf = await this.generateWithDescriptionFallback(normalizedData);
+                  resolve(fallbackPdf);
+                  return;
+                }
+              }
+            }
+            
+            // Không có description hoặc Puppeteer không available
+            resolve(mainPdfBuffer);
+          } catch (error) {
+            reject(error);
+          }
+        });
+        doc.on('error', reject);
+
+        // Generate PDF content (không có description)
+        this.renderTemplate1(doc, dataWithoutDescription);
+
+        // Finalize PDF
+        doc.end();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Merge 2 PDF buffers bằng cách tạo PDF mới và copy pages (sử dụng pdf-lib nếu có)
+   */
+  private async mergePdfBuffers(pdf1Buffer: Buffer, pdf2Buffer: Buffer): Promise<Buffer> {
+    try {
+      // Thử dùng pdf-lib nếu có (dynamic require để tránh lỗi compile)
+      let PDFDocument: any;
+      try {
+        const pdfLib = require('pdf-lib');
+        PDFDocument = pdfLib.PDFDocument;
+      } catch {
+        throw new Error('pdf-lib not installed');
+      }
+      
+      if (!PDFDocument) {
+        throw new Error('pdf-lib not available');
+      }
+      
+      const mergedPdf = await PDFDocument.create();
+      
+      // Load và copy pages từ PDF 1
+      const pdf1 = await PDFDocument.load(pdf1Buffer);
+      const pdf1Pages = await mergedPdf.copyPages(pdf1, pdf1.getPageIndices());
+      pdf1Pages.forEach((page: any) => mergedPdf.addPage(page));
+      
+      // Load và copy pages từ PDF 2
+      const pdf2 = await PDFDocument.load(pdf2Buffer);
+      const pdf2Pages = await mergedPdf.copyPages(pdf2, pdf2.getPageIndices());
+      pdf2Pages.forEach((page: any) => mergedPdf.addPage(page));
+      
+      // Save merged PDF
+      const mergedBytes = await mergedPdf.save();
+      return Buffer.from(mergedBytes);
+    } catch (error: any) {
+      // pdf-lib không có, throw error để fallback
+      throw new Error('pdf-lib is required for merging PDFs. Install it: npm install pdf-lib');
+    }
+  }
+
+  /**
+   * Fallback: Generate PDF với description bằng PDFGenerator parser
+   */
+  private async generateWithDescriptionFallback(data: Template1Data): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({
+          size: 'A4',
+          margins: {
+            top: 72,
+            bottom: 72,
+            left: 72,
+            right: 72,
+          },
+        });
+
+        const chunks: Buffer[] = [];
+
+        doc.on('data', (chunk) => chunks.push(chunk));
         doc.on('end', () => resolve(Buffer.concat(chunks)));
         doc.on('error', reject);
 
-        // Generate PDF content
-        this.renderTemplate1(doc, normalizedData);
+        // Render PDF chính
+        const dataWithoutDescription = { ...data, description: '' };
+        this.renderTemplate1(doc, dataWithoutDescription);
+        
+        // Render description với PDFGenerator parser
+        if (data.description) {
+          doc.fontSize(12).font('Regular');
+          const { PDFGenerator } = require('./pdf-generator');
+          const pdfGenerator = new PDFGenerator();
+          pdfGenerator.renderHtmlToPdf(doc, data.description);
+        }
 
-        // Finalize PDF
         doc.end();
       } catch (error) {
         reject(error);
@@ -399,7 +514,7 @@ export class MinioService {
       .text('THÔNG TIN ĐỀ TÀI', { align: 'center' })
       .text('GIAI ĐOẠN 1 (GĐ1): ĐỀ CƯƠNG LUẬN VĂN/ ĐỒ ÁN CHUYÊN NGÀNH/', { align: 'center' })
       .text('ĐỒ ÁN MÔN HỌC KỸ THUẬT MÁY TÍNH', { align: 'center' })
-      .text(`HỌC KỲ ${data.semester} NĂM HỌC ${data.academicYear}`, { align: 'center' })
+      .text(`${data.semester.toUpperCase()}`, { align: 'center' })
       .moveDown(1);
 
     // Tên đề tài - gốc trái, IN ĐẬM, cỡ 12
@@ -533,15 +648,6 @@ export class MinioService {
     });
     doc.moveDown(1);
 
-    // Mô tả - người dùng nhập gì thì hiển thị y vậy
-    if (data.description) {
-      doc
-        .fontSize(12)
-        .font('Regular')
-        .text(data.description, {
-          align: 'left',
-          lineGap: 2,
-        });
-    }
+    // Mô tả - sẽ được render với Puppeteer sau khi PDF chính được tạo
   }
 }
