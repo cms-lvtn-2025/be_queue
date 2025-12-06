@@ -29,9 +29,6 @@ RUN yarn install --frozen-lockfile --production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy certs if needed
-COPY --from=builder /app/certs ./certs
-
 # Expose port
 EXPOSE 3000
 

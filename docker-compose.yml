@@ -11,6 +11,8 @@ services:
       - NODE_ENV=production
     env_file:
       - .env
+    volumes:
+      - ./certs:/app/certs:ro
     networks:
       - lvtn-network
     healthcheck:
