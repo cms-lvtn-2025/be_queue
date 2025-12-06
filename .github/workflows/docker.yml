@@ -1,4 +1,4 @@
-name: Docker Build & Deploy
+name: Docker Build & Push
 
 on:
   push:
@@ -48,25 +48,3 @@ jobs:
 
       - name: Image digest
         run: echo "Image pushed with tags ${{ steps.meta.outputs.tags }}"
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /opt/lvtn/BE_core
-            docker pull ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-            docker-compose down
-            docker-compose up -d
-            docker image prune -f
