@@ -16,6 +16,7 @@ import {
   serviceQueueEvents,
 } from "./queue/queue";
 import { MinioService } from "./queue/minio";
+import { notificationService } from "./queue/notification";
 import { initializeCronJobs, cleanupCronJobs } from "./queue/cronjob/cronjob-init";
 import apiRoutes from "./api/routes";
 import { authenticateBullMQ } from "./middleware/bullmq-auth.middleware";
@@ -84,6 +85,16 @@ async function main() {
         );
       }
     }
+
+    // Đăng ký Notification Service
+    serviceQueueManager.registerStaticQueue(
+      "NOTIFICATION_SERVICE",
+      notificationService,
+      {
+        concurrency: 3,
+        attempts: 3,
+      }
+    );
     // Khởi tạo Bull Board UI với tất cả queues
     refreshBullBoardQueues();
 

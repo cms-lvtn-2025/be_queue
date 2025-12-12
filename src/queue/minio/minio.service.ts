@@ -1,6 +1,7 @@
 import * as Minio from 'minio';
 import { Readable } from 'stream';
 import PDFDocument from 'pdfkit';
+import * as XLSX from 'xlsx';
 import { Template1Data } from './document.types';
 import { IMinioConfig, MinioConfigModel } from '../../database/models';
 import { renderHtmlDescriptionToPdf } from './html-to-pdf-helper';
@@ -276,6 +277,216 @@ export class MinioService {
       if (error.code === 'NotFound') {
         return false;
       }
+      throw error;
+    }
+  }
+
+  /**
+   * Đọc Excel file từ MinIO và convert thành array of objects
+   * Hàng 1: định nghĩa field names (keys)
+   * Hàng 2+: values cho mỗi object
+   *
+   * @param params.objectName - Tên file trong MinIO
+   * @param params.sheetName - Tên sheet (optional, mặc định lấy sheet đầu tiên)
+   * @param params.sheetIndex - Index của sheet (optional, mặc định 0)
+   * @returns Array of objects
+   *
+   * @example
+   * // Excel file:
+   * // | name  | email         | age |
+   * // | John  | john@mail.com | 25  |
+   * // | Jane  | jane@mail.com | 30  |
+   *
+   * const data = await minioService.readExcelAsObjects({ objectName: 'data.xlsx' });
+   * // Result: [
+   * //   { name: "John", email: "john@mail.com", age: 25 },
+   * //   { name: "Jane", email: "jane@mail.com", age: 30 }
+   * // ]
+   */
+  public async readExcelAsObjects<T = Record<string, any>>(params: {
+    objectName: string;
+    sheetName?: string;
+    sheetIndex?: number;
+  }): Promise<T[]> {
+    try {
+      const { objectName, sheetName, sheetIndex = 0 } = params;
+
+      console.log(`📊 Reading Excel file: ${objectName}`);
+
+      // 1. Lấy file buffer từ MinIO
+      const buffer = await this.getFile({ objectName });
+
+      // 2. Parse Excel file
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+
+      // 3. Lấy sheet
+      let sheet: XLSX.WorkSheet;
+      if (sheetName) {
+        sheet = workbook.Sheets[sheetName];
+        if (!sheet) {
+          throw new Error(`Sheet "${sheetName}" not found in Excel file`);
+        }
+      } else {
+        const sheetNames = workbook.SheetNames;
+        if (sheetIndex >= sheetNames.length) {
+          throw new Error(`Sheet index ${sheetIndex} out of range. File has ${sheetNames.length} sheets.`);
+        }
+        sheet = workbook.Sheets[sheetNames[sheetIndex]];
+      }
+
+      // 4. Convert sheet to array of objects
+      // header: 1 means row 1 is header (field names)
+      const data = XLSX.utils.sheet_to_json<T>(sheet, {
+        header: 1, // Get raw arrays first
+        defval: null, // Default value for empty cells
+      }) as unknown[][];
+
+      if (data.length === 0) {
+        console.log(`📊 Excel file is empty`);
+        return [];
+      }
+
+      // 5. Extract headers (row 1) and data rows (row 2+)
+      const headers = data[0] as string[];
+      const rows = data.slice(1);
+
+      // 6. Convert to array of objects
+      const result: T[] = rows
+        .filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== '')) // Skip empty rows
+        .map(row => {
+          const obj: Record<string, any> = {};
+          headers.forEach((header, index) => {
+            if (header && header.toString().trim() !== '') {
+              const key = header.toString().trim();
+              obj[key] = row[index] !== undefined ? row[index] : null;
+            }
+          });
+          return obj as T;
+        });
+
+      console.log(`📊 Read ${result.length} rows from Excel file`);
+      return result;
+    } catch (error) {
+      console.error('Error reading Excel file:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Đọc Excel file từ Buffer và convert thành array of objects
+   * (Không cần file trong MinIO, truyền buffer trực tiếp)
+   *
+   * @param params.buffer - Buffer của Excel file
+   * @param params.sheetName - Tên sheet (optional)
+   * @param params.sheetIndex - Index của sheet (optional, mặc định 0)
+   * @returns Array of objects
+   */
+  public readExcelBufferAsObjects<T = Record<string, any>>(params: {
+    buffer: Buffer;
+    sheetName?: string;
+    sheetIndex?: number;
+  }): T[] {
+    try {
+      const { buffer, sheetName, sheetIndex = 0 } = params;
+
+      // Parse Excel file
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+
+      // Lấy sheet
+      let sheet: XLSX.WorkSheet;
+      if (sheetName) {
+        sheet = workbook.Sheets[sheetName];
+        if (!sheet) {
+          throw new Error(`Sheet "${sheetName}" not found in Excel file`);
+        }
+      } else {
+        const sheetNames = workbook.SheetNames;
+        if (sheetIndex >= sheetNames.length) {
+          throw new Error(`Sheet index ${sheetIndex} out of range. File has ${sheetNames.length} sheets.`);
+        }
+        sheet = workbook.Sheets[sheetNames[sheetIndex]];
+      }
+
+      // Convert to raw arrays
+      const data = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+        header: 1,
+        defval: null,
+      }) as unknown[][];
+
+      if (data.length === 0) {
+        return [];
+      }
+
+      // Extract headers and data rows
+      const headers = data[0] as string[];
+      const rows = data.slice(1);
+
+      // Convert to array of objects
+      const result: T[] = rows
+        .filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== ''))
+        .map(row => {
+          const obj: Record<string, any> = {};
+          headers.forEach((header, index) => {
+            if (header && header.toString().trim() !== '') {
+              const key = header.toString().trim();
+              obj[key] = row[index] !== undefined ? row[index] : null;
+            }
+          });
+          return obj as T;
+        });
+
+      return result;
+    } catch (error) {
+      console.error('Error reading Excel buffer:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lấy danh sách tên các sheets trong Excel file
+   * @param params.objectName - Tên file trong MinIO
+   * @returns Array of sheet names
+   */
+  public async getExcelSheetNames(params: { objectName: string }): Promise<string[]> {
+    try {
+      const buffer = await this.getFile({ objectName: params.objectName });
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      return workbook.SheetNames;
+    } catch (error) {
+      console.error('Error getting Excel sheet names:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Đọc tất cả sheets trong Excel file
+   * @param params.objectName - Tên file trong MinIO
+   * @returns Object với key là tên sheet, value là array of objects
+   */
+  public async readAllExcelSheets<T = Record<string, any>>(params: {
+    objectName: string;
+  }): Promise<Record<string, T[]>> {
+    try {
+      const { objectName } = params;
+
+      console.log(`📊 Reading all sheets from Excel file: ${objectName}`);
+
+      const buffer = await this.getFile({ objectName });
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+
+      const result: Record<string, T[]> = {};
+
+      for (const sheetName of workbook.SheetNames) {
+        result[sheetName] = this.readExcelBufferAsObjects<T>({
+          buffer,
+          sheetName,
+        });
+      }
+
+      console.log(`📊 Read ${Object.keys(result).length} sheets from Excel file`);
+      return result;
+    } catch (error) {
+      console.error('Error reading all Excel sheets:', error);
       throw error;
     }
   }
