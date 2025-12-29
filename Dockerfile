@@ -6,8 +6,9 @@ WORKDIR /app
 # Copy package files
 COPY package.json yarn.lock ./
 
-# Install dependencies
-RUN yarn install --frozen-lockfile
+# Install dependencies with retry for network issues
+RUN yarn install --frozen-lockfile --network-timeout 600000 || \
+    yarn install --frozen-lockfile --network-timeout 600000
 
 # Copy source code
 COPY . .
@@ -24,7 +25,8 @@ WORKDIR /app
 COPY package.json yarn.lock ./
 
 # Install production dependencies only
-RUN yarn install --frozen-lockfile --production
+RUN yarn install --frozen-lockfile --production --network-timeout 600000 || \
+    yarn install --frozen-lockfile --production --network-timeout 600000
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
