@@ -29,13 +29,22 @@ export class GrpcService extends ExternalService {
           `Service ${service.name} missing protoPath or protoPackage`
         );
       }
-      // Resolve paths relative to src directory
+      // Resolve paths relative to src directory (dist at runtime)
       const srcDir = path.resolve(__dirname, "../../..");
       const protoBaseDir = path.resolve(srcDir, "proto");
 
-      // Convert relative protoPath to absolute if needed
+      // Convert protoPath to local proto directory
       let protoFilePath = service.protoPath;
-      if (!path.isAbsolute(protoFilePath)) {
+
+      // Handle old absolute paths from database (e.g., /home/thaily/code/lvtn/BE_main/proto/file/file.proto)
+      if (path.isAbsolute(protoFilePath)) {
+        // Extract relative path from old absolute path
+        const protoMatch = protoFilePath.match(/proto\/(.+\.proto)$/);
+        if (protoMatch) {
+          protoFilePath = path.resolve(protoBaseDir, protoMatch[1]);
+        }
+      } else {
+        // Handle relative paths (e.g., proto/file/file.proto)
         protoFilePath = path.resolve(srcDir, protoFilePath);
       }
 
