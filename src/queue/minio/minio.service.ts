@@ -2,9 +2,42 @@ import * as Minio from 'minio';
 import { Readable } from 'stream';
 import PDFDocument from 'pdfkit';
 import * as XLSX from 'xlsx';
+import * as fs from 'fs';
 import { Template1Data } from './document.types';
 import { IMinioConfig, MinioConfigModel } from '../../database/models';
 import { renderHtmlDescriptionToPdf } from './html-to-pdf-helper';
+
+/**
+ * Get font path based on OS (Ubuntu/Debian vs Alpine Linux)
+ */
+function getFontPath(): string {
+  // Ubuntu/Debian path
+  const debianPath = '/usr/share/fonts/truetype/liberation';
+  // Alpine Linux path
+  const alpinePath = '/usr/share/fonts/liberation';
+
+  if (fs.existsSync(debianPath)) {
+    return debianPath;
+  }
+  if (fs.existsSync(alpinePath)) {
+    return alpinePath;
+  }
+
+  // Fallback - try to find font
+  const possiblePaths = [
+    '/usr/share/fonts/truetype/liberation',
+    '/usr/share/fonts/liberation',
+    '/usr/share/fonts/TTF',
+  ];
+
+  for (const path of possiblePaths) {
+    if (fs.existsSync(path)) {
+      return path;
+    }
+  }
+
+  throw new Error('Liberation fonts not found. Please install font-liberation package.');
+}
 
 export class MinioService {
   private client: Minio.Client;
@@ -703,7 +736,7 @@ export class MinioService {
    */
   private renderTemplate1(doc: PDFKit.PDFDocument, data: Template1Data): void {
     // Register Liberation Serif fonts - Times New Roman style (hỗ trợ tiếng Việt)
-    const fontPath = '/usr/share/fonts/truetype/liberation';
+    const fontPath = getFontPath();
     doc.registerFont('Regular', `${fontPath}/LiberationSerif-Regular.ttf`);
     doc.registerFont('Bold', `${fontPath}/LiberationSerif-Bold.ttf`);
     doc.registerFont('Italic', `${fontPath}/LiberationSerif-Italic.ttf`);

@@ -21,6 +21,12 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# Install fonts for PDF generation (Liberation fonts = Times New Roman compatible)
+RUN apk add --no-cache \
+    fontconfig \
+    font-liberation \
+    && fc-cache -f
+
 # Copy package files
 COPY package.json yarn.lock ./
 
