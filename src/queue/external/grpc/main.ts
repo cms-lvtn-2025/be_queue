@@ -5,7 +5,7 @@ import fs from "fs";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { DefaultJobOptions, Job, Queue, Worker } from "bullmq";
-import { redisConnection, ServiceJobData } from "../../queue";
+import { redisConnection, ServiceJobData, serviceQueueManager } from "../../queue";
 
 interface GrpcSetting {
   address: string;
@@ -29,17 +29,25 @@ export class GrpcService extends ExternalService {
           `Service ${service.name} missing protoPath or protoPackage`
         );
       }
-      const protoDir = path.dirname(service.protoPath);
-      const protoBaseDir = path.resolve("/home/thaily/code/lvtn/BE_main/proto");
-      const protoParentDir = path.resolve("/home/thaily/code/lvtn/BE_main");
+      // Resolve paths relative to src directory
+      const srcDir = path.resolve(__dirname, "../../..");
+      const protoBaseDir = path.resolve(srcDir, "proto");
 
-      const packageDefinition = protoLoader.loadSync(service.protoPath, {
+      // Convert relative protoPath to absolute if needed
+      let protoFilePath = service.protoPath;
+      if (!path.isAbsolute(protoFilePath)) {
+        protoFilePath = path.resolve(srcDir, protoFilePath);
+      }
+
+      const protoDir = path.dirname(protoFilePath);
+
+      const packageDefinition = protoLoader.loadSync(protoFilePath, {
         keepCase: true,
         longs: String,
         enums: String,
         defaults: true,
         oneofs: true,
-        includeDirs: [protoDir, protoBaseDir, protoParentDir], // Thêm parent để resolve "proto/common/..."
+        includeDirs: [protoDir, protoBaseDir, srcDir], // srcDir để resolve "proto/common/..."
       });
       const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
 
@@ -295,7 +303,13 @@ export class GrpcService extends ExternalService {
           return results;
         } catch (error: any) {
           console.error(`   ❌ Error:`, error.message);
-          throw error;
+          if (job.data.params?.options && job.data.params?.options?.FaildToMassage) {
+            return {
+              result: error.message,
+              status: 400,
+            }
+          }
+          else throw new Error(error.message);
         }
       },
       {
@@ -308,8 +322,10 @@ export class GrpcService extends ExternalService {
   }
 
   private async eventWorker(): Promise<any> {
-    this.worker?.on("completed", (job) => {
+    this.worker?.on("completed", async (job) => {
       console.log(`✨ [${this.service.name}] Job ${job.id} completed`);
+      // Cập nhật progress của parent job nếu đây là child job
+      await serviceQueueManager.updateParentProgress(job);
     });
 
     this.worker?.on("failed", (job, err) => {

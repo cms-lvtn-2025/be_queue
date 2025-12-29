@@ -6,6 +6,7 @@ import {
   Worker,
   JobsOptions,
   FlowOpts,
+  QueueEvents,
 } from "bullmq";
 import IORedis from "ioredis";
 import {
@@ -21,6 +22,7 @@ import { v4 as uuidv4 } from "uuid";
 import { options } from "pdfkit";
 import { ManagerExternalService } from "./external/main";
 import { EventEmitter } from "events";
+import { IExcelModel } from "../database/models/excel.model";
 
 export const redisConnection = new IORedis({
   host: process.env.REDIS_HOST || "localhost",
@@ -43,6 +45,7 @@ export interface ServiceQueueInfo {
   queueName: string;
   queue: Queue<ServiceJobData>;
   worker: Worker<ServiceJobData>;
+  queueEvents?: QueueEvents; // For tracking job events
   client: any; // gRPC client hoặc class instance
   type: "dynamic" | "static"; // dynamic = từ DB, static = manual register
   service?: IService; // Optional - chỉ có khi type = dynamic
@@ -67,9 +70,68 @@ export interface FlowJobWithId {
 export class ServiceQueueManager {
   private queues: Map<string, ServiceQueueInfo> = new Map();
   private externalServiceManager: ManagerExternalService;
+  // Map để track parent jobs và completed children count
+  private parentJobProgress: Map<string, { completed: number; total: number }> = new Map();
 
   constructor() {
     this.externalServiceManager = new ManagerExternalService();
+  }
+
+  /**
+   * Cập nhật progress của parent job khi child hoàn thành
+   */
+  async updateParentProgress(job: Job<ServiceJobData>): Promise<void> {
+    try {
+      // Lấy parent job nếu có
+      const parentKey = job.parentKey;
+      if (!parentKey) return;
+
+      // Parse parent key: bull:QUEUE_NAME:JOB_ID
+      const parts = parentKey.split(":");
+      if (parts.length < 3) return;
+
+      const parentQueueName = parts[1];
+      const parentJobId = parts.slice(2).join(":");
+
+      // Tìm queue của parent
+      const parentQueueInfo = this.queues.get(parentQueueName);
+      if (!parentQueueInfo) return;
+
+      const parentJob = await parentQueueInfo.queue.getJob(parentJobId);
+      if (!parentJob) return;
+
+      // Lấy totalChildren từ metadata
+      const totalChildren = parentJob.data.metadata?.totalChildren;
+      if (!totalChildren || totalChildren <= 0) return;
+
+      // Tạo key để track progress
+      const progressKey = `${parentQueueName}:${parentJobId}`;
+
+      // Lấy hoặc tạo entry progress
+      let progressEntry = this.parentJobProgress.get(progressKey);
+      if (!progressEntry) {
+        progressEntry = { completed: 0, total: totalChildren };
+        this.parentJobProgress.set(progressKey, progressEntry);
+      }
+
+      // Tăng completed count
+      progressEntry.completed++;
+
+      // Tính progress percentage
+      const progressPercent = Math.round((progressEntry.completed / progressEntry.total) * 100);
+
+      // Cập nhật progress của parent job
+      await parentJob.updateProgress(progressPercent);
+
+      console.log(`📊 [${parentQueueName}] Parent job ${parentJobId} progress: ${progressPercent}% (${progressEntry.completed}/${progressEntry.total})`);
+
+      // Cleanup nếu đã hoàn thành tất cả children
+      if (progressEntry.completed >= progressEntry.total) {
+        this.parentJobProgress.delete(progressKey);
+      }
+    } catch (error) {
+      console.error("Error updating parent progress:", error);
+    }
   }
 
   private findQueueEntryByServiceId(
@@ -246,7 +308,7 @@ export class ServiceQueueManager {
           return results;
         } catch (error: any) {
           console.error(`   ❌ Error:`, error.message);
-          throw error;
+          throw new Error(error.message);
         }
       },
       {
@@ -254,6 +316,17 @@ export class ServiceQueueManager {
         concurrency: parseInt(process.env.WORKER_CONCURRENCY || "3"),
       }
     );
+
+    // Event listeners for progress tracking
+    worker.on("completed", async (job) => {
+      console.log(`✨ [MONGODB_WORKFLOW] Job ${job.id} completed`);
+      await this.updateParentProgress(job);
+    });
+
+    worker.on("failed", (job, err) => {
+      console.error(`❌ [MONGODB_WORKFLOW] Job ${job?.id} failed:`, err.message);
+    });
+
     const queueInfo: ServiceQueueInfo = {
       serviceName: "MONGODB_WORKFLOW",
       queueName,
@@ -264,6 +337,125 @@ export class ServiceQueueManager {
     };
     this.queues.set("MONGODB_WORKFLOW", queueInfo);
     console.log(`✅ Queue created for MONGODB_WORKFLOW`);
+    return queueInfo;
+  }
+
+  createServiceExcelQueue(ExcelModel: IExcelModel): ServiceQueueInfo {
+    const queueName = `MONGODB_EXCEL`;
+    // Implementation similar to createServiceWorkflowQueue
+    const queue = new Queue<ServiceJobData>(queueName, {
+      connection: redisConnection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 5000,
+        },
+        removeOnComplete: {
+          count: 100,
+        },
+        removeOnFail: {
+          count: 50,
+        },
+      },
+    });
+    // Tạo Worker với MongoDB model
+    const worker = new Worker<ServiceJobData>(
+      queueName,
+      async (job: Job<ServiceJobData>) => {
+        const children = await job.getChildrenValues();
+        console.log(`\n⚡ [MONGODB] Processing job ${job.id}`);
+        console.log(`   Method: ${job.data.method}`);
+        console.log(`   Params:`, job.data.params);
+        try {
+          // Gọi method từ ExcelModel
+          const method = (ExcelModel as any)[job.data.method];
+          if (!method) {
+            throw new Error(
+              `Method ${job.data.method} not found on MONGODB_EXCEL_QUEUE`
+            );
+          }
+          const addDataForObject = (obj: any, data: any) => {
+            if (!obj || typeof obj !== "object") return;
+            for (const key in obj) {
+              const value = obj[key];
+              //  // Parse: @bull:file_service-queue:jobId.file.id
+              if (typeof value == "string" && value.startsWith("@bull:")) {
+                const cleaned = value.replace("@", ""); // bull:file_service-queue:jobId.file.id
+                const [fullJobKey, ...pathParts] = cleaned.split("."); // ["bull:file_service-queue:jobId", "file", "id"]
+
+                // Lấy child result từ children object
+                let dataKey = data[fullJobKey]; // children["bull:file_service-queue:jobId"]
+
+                // Navigate qua path (file.id)
+                pathParts.forEach((part) => {
+                  if (dataKey && typeof dataKey === "object") {
+                    dataKey = dataKey[part];
+                  }
+                });
+
+                obj[key] = dataKey;
+                console.log(`   🔄 Resolved ${value} -> ${dataKey}`);
+              } else if (typeof value === "object") {
+                addDataForObject(value, data);
+              } else if (Array.isArray(value)) {
+                value.forEach((item: any) => {
+                  addDataForObject(item, data);
+                });
+              }
+            }
+          };
+          if (typeof job.data.params == "object") {
+            addDataForObject(job.data.params, children);
+          }
+          // Call method (bind this context)
+          let result;
+          if (job.data.method === 'updateOne' || job.data.method === 'updateMany' || job.data.method === 'deleteOne' || job.data.method === 'deleteMany') {
+            // updateOne/updateMany cần 2 arguments: filter và update
+            const { filter, update, options } = job.data.params.params;
+            result = await method.call(ExcelModel, filter, update, options);
+          } else if (job.data.method === 'findOneAndUpdate' || job.data.method === 'findOneAndDelete') {
+            // findOneAndUpdate cần filter, update, options
+            const { filter, update, options } = job.data.params.params;
+            result = await method.call(ExcelModel, filter, update, options);
+          } else {
+            result = await method.call(ExcelModel, job.data.params.params);
+          }
+          let results: any = {
+            result: result,
+          };
+          if (job.data.params?.data) {
+            results.data = job.data.params?.data;
+          }
+          console.log(`   ✅ Success:`, results);
+          return results;
+        } catch (error: any) {
+          console.error(`   ❌ Error:`, error.message);
+          throw new Error(error.message);
+        }
+      },
+      {
+        connection: redisConnection,
+        concurrency: parseInt(process.env.WORKER_CONCURRENCY || "3"),
+      }
+    );
+    // Event listeners for progress tracking
+    worker.on("completed", async (job) => {
+      console.log(`✨ [MONGODB_EXCEL] Job ${job.id} completed`);
+      await this.updateParentProgress(job);
+    });
+    worker.on("failed", (job, err) => {
+      console.error(`❌ [MONGODB_EXCEL] Job ${job?.id} failed:`, err.message);
+    });
+    const queueInfo: ServiceQueueInfo = {
+      serviceName: "MONGODB_EXCEL",
+      queueName,
+      queue,
+      worker,
+      client: ExcelModel,
+      type: "static",
+    };
+    this.queues.set("MONGODB_EXCEL", queueInfo);
     return queueInfo;
   }
 
@@ -370,10 +562,11 @@ export class ServiceQueueManager {
           if (job.data.params?.data) {
             results.data = job.data.params?.data;
           }
+
           return results;
         } catch (error: any) {
           console.error(`   ❌ Error:`, error.message);
-          throw error;
+          throw new Error(error.message);
         }
       },
       {
@@ -386,8 +579,10 @@ export class ServiceQueueManager {
     );
 
     // Event listeners
-    worker.on("completed", (job) => {
+    worker.on("completed", async (job) => {
       console.log(`✨ [${serviceName}] Job ${job.id} completed`);
+      // Cập nhật progress của parent job nếu đây là child job
+      await this.updateParentProgress(job);
     });
 
     worker.on("failed", (job, err) => {
@@ -664,6 +859,7 @@ export class QueueService {
     console.log(child.params);
     this.addIdOfChildJob(child.params, grandChildren || []);
     console.log("After addIdOfChildJob:", child.params);
+
     return {
       id: id,
       flow: {
@@ -697,6 +893,17 @@ export class QueueService {
   ): Promise<any> {
     const queueName = `${parentServiceName}`;
 
+    // Đếm số direct children (không đếm nested) để tính progress chính xác
+    const directChildrenCount = children.length;
+
+    // Đếm tổng số jobs (bao gồm cả nested) - chỉ để log
+    const countAllJobs = (children: Children[]): number => {
+      return children.reduce((total, child) => {
+        return total + 1 + (child.children ? countAllJobs(child.children) : 0);
+      }, 0);
+    };
+    const totalJobs = countAllJobs(children);
+
     // Tạo child jobs với đệ quy support
     const childJobs: FlowJobWithId[] = children.map((child, index) =>
       this.buildFlowJob(child, index, parentServiceName)
@@ -713,24 +920,16 @@ export class QueueService {
           metadata: {
             serviceName: parentServiceName,
             hasChildren: true,
+            totalChildren: directChildrenCount, // Chỉ đếm direct children để tính progress
           },
         },
         children: childJobs.map((value) => value.flow),
         opts: {
-
           ...options,
         },
       },
       FlowOpts
     );
-
-    // Đếm tổng số jobs (bao gồm cả nested)
-    const countJobs = (children: Children[]): number => {
-      return children.reduce((total, child) => {
-        return total + 1 + (child.children ? countJobs(child.children) : 0);
-      }, 0);
-    };
-    const totalJobs = countJobs(children);
 
     console.log(
       `📝 Created parent job with ${children.length} direct children (${totalJobs} total jobs) for ${parentServiceName}.${parentMethod}`

@@ -29,6 +29,9 @@ RUN yarn install --frozen-lockfile --production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy proto files (needed at runtime for gRPC)
+COPY --from=builder /app/src/proto ./dist/proto
+
 # Expose port
 EXPOSE 3000
 

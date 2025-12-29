@@ -304,15 +304,19 @@ export const getAvailableServices = async (req: Request, res: Response): Promise
           name: 'MONGODB_WORKFLOW',
           type: 'WORKFLOW',
           methods: ['findById', 'find', 'findOne', 'create', 'update', 'delete'],
-        },
+        },{
+          name: 'MONGODB_EXCEL',
+          type: 'EXCEL',
+          methods: ['findById', 'find', 'findOne', 'create', 'update', 'delete'],
+        }
       ],
       static: allQueues
-        .filter((q) => q.type === 'static' && q.serviceName !== 'QUEUE' && q.serviceName !== 'MONGODB_WORKFLOW')
+        .filter((q) => q.type === 'static' && q.serviceName !== 'QUEUE' && q.serviceName !== 'MONGODB_WORKFLOW' && q.serviceName !== 'MONGODB_EXCEL')
         .map((q) => ({
           name: q.serviceName,
           type: 'STATIC',
           methods: q.serviceName.startsWith('MINIO_SERVICE')
-            ? ['uploadBuffer', 'getFile', 'deleteFile', 'listFiles', 'generateTemplate1PDF']
+            ? ['uploadBuffer', 'getFile', 'deleteFile', 'listFiles', 'generateTemplate1PDF', 'readExcelAsObjects']
             : [],
         })),
       dynamic: allQueues

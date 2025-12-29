@@ -38,19 +38,19 @@ export const getAllCronJobs = async (req: Request, res: Response): Promise<void>
  */
 export const createCronJob = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, cronExpression, WL_id, enabled = true } = req.body;
+    const { name, schedule, WL_id, enabled = true } = req.body;
 
     // Validation
-    if (!cronExpression || !WL_id) {
+    if (!schedule || !WL_id) {
       res.status(400).json({
         success: false,
-        message: 'Missing required fields: cronExpression, WL_id',
+        message: 'Missing required fields: schedule, WL_id',
       });
       return;
     }
 
     const cronJob = await CronJobModel.create({
-      schedule: cronExpression, // Map cronExpression to schedule field
+      schedule: schedule, // Map schedule to schedule field
       WL_id,
       enabled,
     });

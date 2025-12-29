@@ -20,6 +20,7 @@ import { notificationService } from "./queue/notification";
 import { initializeCronJobs, cleanupCronJobs } from "./queue/cronjob/cronjob-init";
 import apiRoutes from "./api/routes";
 import { authenticateBullMQ } from "./middleware/bullmq-auth.middleware";
+import ExcelModel from "./database/models/excel.model";
 
 const refreshBullBoardQueues = () => {
   initBullBoard(serviceQueueManager.getAllQueues());
@@ -61,7 +62,7 @@ async function main() {
       })
     );
     await serviceQueueManager.createServiceWorkflowQueue(WorkflowModel);
-
+    await serviceQueueManager.createServiceExcelQueue(ExcelModel)
     serviceQueueManager.registerStaticQueue(
       "QUEUE",
       queueService,
@@ -111,6 +112,7 @@ async function main() {
       "http://localhost:5174",
       "http://localhost:5175",
       "http://localhost:5176",
+      "http://localhost:3002",
     ];
 
     app.use(cors({

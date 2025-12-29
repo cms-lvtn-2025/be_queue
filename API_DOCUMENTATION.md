@@ -719,7 +719,7 @@ Authorization: Bearer <accessToken>
     {
       "id": "507f1f77bcf86cd799439011",
       "name": "Daily Backup",
-      "cronExpression": "0 0 * * *",
+      "schedule": "0 0 * * *",
       "WL_id": "507f1f77bcf86cd799439001",
       "enabled": true,
       "lastRun": "2025-11-22T00:00:00.000Z",
@@ -745,7 +745,7 @@ Authorization: Bearer <accessToken>
 ```json
 {
   "name": "Hourly Check",
-  "cronExpression": "0 * * * *",
+  "schedule": "0 * * * *",
   "WL_id": "507f1f77bcf86cd799439001",
   "enabled": true
 }
@@ -759,7 +759,7 @@ Authorization: Bearer <accessToken>
   "data": {
     "id": "507f1f77bcf86cd799439012",
     "name": "Hourly Check",
-    "cronExpression": "0 * * * *",
+    "schedule": "0 * * * *",
     "enabled": true
   }
 }
@@ -778,7 +778,7 @@ Authorization: Bearer <accessToken>
 **Request Body:**
 ```json
 {
-  "cronExpression": "0 */2 * * *",
+  "schedule": "0 */2 * * *",
   "enabled": false
 }
 ```
@@ -790,7 +790,7 @@ Authorization: Bearer <accessToken>
   "message": "Cron job updated successfully",
   "data": {
     "id": "507f1f77bcf86cd799439012",
-    "cronExpression": "0 */2 * * *",
+    "schedule": "0 */2 * * *",
     "enabled": false
   }
 }

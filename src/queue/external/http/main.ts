@@ -2,7 +2,7 @@ import { DefaultJobOptions, Job, Queue, Worker } from "bullmq";
 import { IService, ServiceModel } from "../../../database";
 import { ExternalService } from "../baseExternal";
 import axios, { AxiosInstance } from "axios";
-import { redisConnection, ServiceJobData } from "../../queue";
+import { redisConnection, ServiceJobData, serviceQueueManager } from "../../queue";
 
 
 export class HttpService extends ExternalService {
@@ -142,8 +142,10 @@ export class HttpService extends ExternalService {
   }
 
   private async eventWorker(): Promise<any> {
-    this.worker?.on("completed", (job) => {
+    this.worker?.on("completed", async (job) => {
       console.log(`${this.service.name} job ${job?.id} completed`);
+      // Cập nhật progress của parent job nếu đây là child job
+      await serviceQueueManager.updateParentProgress(job);
     });
     this.worker?.on("failed", (job, error) => {
       console.error(`${this.service.name} job ${job?.id} failed:`, error.message);

@@ -176,7 +176,7 @@ Thêm section CronJob:
   {isCustom && (
     <Input
       placeholder="* * * * *"
-      value={cronExpression}
+      value={schedule}
       onChange={handleCronChange}
     />
   )}
